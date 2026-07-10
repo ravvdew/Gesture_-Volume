@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Hand Gesture Volume Control</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <h1>Hand Gesture Volume Control</h1>
+  </header>
+
+  <main>
+    <div class="card" id="camera-card">
+      <h2>Live Camera</h2>
+      <div id="webcam-box">
+        <p id="placeholder-txt">Press Start to open camera</p>
+      </div>
+      <p id="gesture-label"></p>
+      <div id="btn-row">
+        <button id="startBtn" onclick="startCamera()">▶ Start</button>
+        <button id="stopBtn" onclick="stopCamera()" disabled>■ Stop</button>
+      </div>
+    </div>
+
+    <div class="right-col">
+      <div class="card">
+        <h2>Volume</h2>
+        <p id="vol-number">50%</p>
+        <div id="vol-track">
+          <div id="vol-fill"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Gesture Guide</h2>
+        <div class="gesture-item" id="row-up">
+          <span>🤚</span>
+          <div>
+            <p class="g-name">Volume Up</p>
+            <p class="g-desc">Palm facing upward</p>
+          </div>
+        </div>
+        <div class="gesture-item" id="row-down">
+          <span>🤚</span>
+          <div>
+            <p class="g-name">Volume Down</p>
+            <p class="g-desc">Palm facing downward</p>
+          </div>
+        </div>
+        <div class="gesture-item" id="row-mute">
+          <span>✊</span>
+          <div>
+            <p class="g-name">Mute</p>
+            <p class="g-desc">Closed fist</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
+
+  <script>
+    const MODEL_URL = 'https://teachablemachine.withgoogle.com/models/0p7wiGQPY/';
+    const THRESHOLD = 0.80;
+    const COOLDOWN_MS = 1500;
+
+    let model, webcam, running = false;
+    let cooldown = false;
+    let fakeVolume = 50;
+    let fakeMuted = false;
+
+    async function startCamera() {
+      document.getElementById('startBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+      await init();
+    }
+
+    function stopCamera() {
+      running = false;
+      if (webcam) webcam.stop();
+      const box = document.getElementById('webcam-box');
+      box.innerHTML = '<p id="placeholder-txt">Press Start to open camera</p>';
+      document.getElementById('gesture-label').textContent = '';
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+    }
+
+    async function init() {
+      try {
+        document.getElementById('gesture-label').textContent = 'Loading model...';
+        model = await tmPose.load(MODEL_URL + 'model.json', MODEL_URL + 'metadata.json');
+
+        webcam = new tmPose.Webcam(640, 260, true);
+        await webcam.setup();
+        await webcam.play();
+        running = true;
+
+        const box = document.getElementById('webcam-box');
+        box.innerHTML = '';
+        box.appendChild(webcam.canvas);
+
+        document.getElementById('gesture-label').textContent = 'Show your hand gesture!';
+        loop();
+      } catch(e) {
+        document.getElementById('gesture-label').textContent = 'Error: ' + e.message;
+        console.error(e);
+      }
+    }
+
+    async function loop() {
+      if (!running) return;
+      webcam.update();
+      await predict();
+      requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+      const { posenetOutput } = await model.estimatePose(webcam.canvas);
+      const preds = await model.predict(posenetOutput);
+      const best = preds.reduce((a, b) => a.probability > b.probability ? a : b);
+      const label = document.getElementById('gesture-label');
+
+      if (best.probability >= THRESHOLD) {
+        label.textContent = best.className + ' — ' + Math.round(best.probability * 100) + '%';
+        if (!cooldown) {
+          cooldown = true;
+          applyAction(best.className);
+          setTimeout(() => { cooldown = false; }, COOLDOWN_MS);
+        }
+      } else {
+        label.textContent = 'No gesture detected';
+      }
+    }
+
+    function applyAction(action) {
+      if (action === 'Volume Up')   { fakeMuted = false; fakeVolume = Math.min(fakeVolume + 10, 100); }
+      if (action === 'Volume Down') { fakeMuted = false; fakeVolume = Math.max(fakeVolume - 10, 0); }
+      if (action === 'Mute')        { fakeMuted = true; }
+      updateUI();
+    }
+
+    function updateUI() {
+      const num = document.getElementById('vol-number');
+      const fill = document.getElementById('vol-fill');
+      num.textContent = fakeMuted ? '🔇' : fakeVolume + '%';
+      fill.style.width = fakeMuted ? '0%' : fakeVolume + '%';
+    }
+  </script>
+
+</body>
+</html>
