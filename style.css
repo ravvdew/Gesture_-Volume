@@ -1,169 +1,163 @@
-@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;700&display=swap');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Hand Gesture Volume Control</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+  <header>
+    <h1>Hand Gesture Volume Control</h1>
+  </header>
 
-body {
-  font-family: 'Chakra Petch', sans-serif;
-  background: #f5f0dc;
-  color: #1a1a1a;
-}
+  <main>
+    <div class="card" id="camera-card">
+      <h2>Live Camera</h2>
+      <div id="webcam-box">
+        <p id="placeholder-txt">Press Start to open camera</p>
+      </div>
+      <p id="gesture-label"></p>
+      <div id="btn-row">
+        <button id="startBtn" onclick="startCamera()">▶ Start</button>
+        <button id="stopBtn" onclick="stopCamera()" disabled>■ Stop</button>
+      </div>
+    </div>
 
-header {
-  padding: 2rem 3rem;
-  border-bottom: 1.5px solid #1a1a1a;
-}
+    <div class="right-col">
+      <div class="card">
+        <h2>Volume</h2>
+        <p id="vol-number">50%</p>
+        <div id="vol-track">
+          <div id="vol-fill"></div>
+        </div>
+      </div>
 
-header h1 {
-  font-size: 2.8rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
+      <div class="card">
+        <h2>Gesture Guide</h2>
+        <div class="gesture-item" id="row-up">
+          <span>🤚</span>
+          <div>
+            <p class="g-name">Volume Up</p>
+            <p class="g-desc">Palm facing upward</p>
+          </div>
+        </div>
+        <div class="gesture-item" id="row-down">
+          <span>🤚</span>
+          <div>
+            <p class="g-name">Volume Down</p>
+            <p class="g-desc">Palm facing downward</p>
+          </div>
+        </div>
+        <div class="gesture-item" id="row-mute">
+          <span>✊</span>
+          <div>
+            <p class="g-name">Mute</p>
+            <p class="g-desc">Closed fist</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 
-main {
-  max-width: 1000px;
-  margin: 2.5rem auto;
-  padding: 0 2.5rem;
-  display: grid;
-  grid-template-columns: 1.2fr 0.8fr;
-  gap: 2rem;
-}
+  <!-- PERUBAHAN PENTING: Versi TensorFlow.js ditukar kepada 1.3.1 supaya serasi dengan model Pose -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/pose@0.8/dist/teachablemachine-pose.min.js"></script>
 
-.card {
-  background: transparent;
-  border-bottom: 1.5px solid #1a1a1a;
-  padding-bottom: 1.5rem;
-  margin-bottom: 1rem;
-}
+<script>
+  const MODEL_URL = 'https://teachablemachine.withgoogle.com/models/0p7wiGQPY/';
+  const THRESHOLD = 0.80; // Model perlukan 80% keyakinan untuk bertindak
+  const COOLDOWN_MS = 1500; // Jarak masa sebelum gesture seterusnya dibaca (1.5 saat)
 
-.card h2 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-bottom: 1rem;
-  letter-spacing: 0.03em;
-}
+  let model, webcam, running = false;
+  let cooldown = false;
+  let fakeVolume = 50;
+  let fakeMuted = false;
 
-#webcam-box {
-  background: #1a1a1a;
-  border-radius: 4px;
-  height: 260px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+  async function startCamera() {
+    document.getElementById('startBtn').disabled = true;
+    document.getElementById('stopBtn').disabled = false;
+    document.getElementById('gesture-label').textContent = 'Loading model...';
 
-#webcam-box canvas {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: 4px;
-}
+    try {
+      // Muat turun model anda
+      model = await tmPose.load(MODEL_URL + 'model.json', MODEL_URL + 'metadata.json');
 
-#placeholder-txt {
-  color: #aaa;
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 1rem;
-}
+      const size = 400;
+      webcam = new tmPose.Webcam(size, size, true); // true untuk terbalikkan (flip) kamera
+      await webcam.setup();
+      await webcam.play();
+      running = true;
 
-#gesture-label {
-  margin-top: 0.85rem;
-  font-size: 1.3rem;
-  font-weight: 700;
-  color: #1a1a1a;
-  padding: 0.5rem 0;
-  min-height: 2.5rem;
-  border-bottom: 1px dashed #aaa;
-}
+      const box = document.getElementById('webcam-box');
+      box.innerHTML = '';
+      box.appendChild(webcam.canvas);
 
-#btn-row {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
+      document.getElementById('gesture-label').textContent = 'Show your hand gesture!';
+      window.requestAnimationFrame(loop);
 
-#startBtn, #stopBtn {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 1rem;
-  font-weight: 700;
-  padding: 0.5rem 1.5rem;
-  border: 1.5px solid #1a1a1a;
-  border-radius: 4px;
-  background: #1a1a1a;
-  color: #f5f0dc;
-  cursor: pointer;
-  transition: all 0.2s;
-}
+    } catch(e) {
+      document.getElementById('gesture-label').textContent = 'Error: ' + e.message;
+      document.getElementById('startBtn').disabled = false;
+      console.error(e);
+    }
+  }
 
-#stopBtn {
-  background: transparent;
-  color: #1a1a1a;
-}
+  function stopCamera() {
+    running = false;
+    if (webcam) webcam.stop();
+    const box = document.getElementById('webcam-box');
+    box.innerHTML = '<p id="placeholder-txt">Press Start to open camera</p>';
+    document.getElementById('gesture-label').textContent = '';
+    document.getElementById('startBtn').disabled = false;
+    document.getElementById('stopBtn').disabled = true;
+  }
 
-#startBtn:disabled, #stopBtn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
+  async function loop(timestamp) {
+    if (!running) return;
+    webcam.update(); // Kemas kini frame webcam
+    await predict();
+    window.requestAnimationFrame(loop);
+  }
 
-.right-col {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
+  async function predict() {
+    // Fungsi asal untuk mendapatkan posisi badan dan membaca isyarat
+    const { pose, posenetOutput } = await model.estimatePose(webcam.canvas);
+    const prediction = await model.predict(posenetOutput);
+    
+    // Cari kebarangkalian tertinggi
+    const best = prediction.reduce((a, b) => a.probability > b.probability ? a : b);
+    const label = document.getElementById('gesture-label');
 
-#vol-number {
-  font-size: 4rem;
-  font-weight: 700;
-  text-align: center;
-  color: #1a1a1a;
-  margin: 0.5rem 0 0.75rem;
-}
+    if (best.probability >= THRESHOLD) {
+      label.textContent = best.className + ' — ' + Math.round(best.probability * 100) + '%';
+      if (!cooldown) {
+        cooldown = true;
+        applyAction(best.className);
+        // Halang sistem dari menukar volume terlalu laju
+        setTimeout(() => { cooldown = false; }, COOLDOWN_MS);
+      }
+    } else {
+      label.textContent = 'No gesture detected';
+    }
+  }
 
-#vol-track {
-  background: #ddd;
-  border-radius: 999px;
-  height: 10px;
-  overflow: hidden;
-  border: 1px solid #bbb;
-}
+  function applyAction(action) {
+    // Memastikan tindakan sepadan dengan nama kelas di Teachable Machine
+    if (action === 'Volume Up')   { fakeMuted = false; fakeVolume = Math.min(fakeVolume + 10, 100); }
+    if (action === 'Volume Down') { fakeMuted = false; fakeVolume = Math.max(fakeVolume - 10, 0); }
+    if (action === 'Mute')        { fakeMuted = true; }
+    updateUI();
+  }
 
-#vol-fill {
-  height: 100%;
-  width: 50%;
-  border-radius: 999px;
-  background: #1a1a1a;
-  transition: width 0.35s ease;
-}
+  function updateUI() {
+    const num = document.getElementById('vol-number');
+    const fill = document.getElementById('vol-fill');
+    
+    // Kemas kini teks peratusan dan palang bar di skrin
+    num.textContent = fakeMuted ? '🔇' : fakeVolume + '%';
+    fill.style.width = fakeMuted ? '0%' : fakeVolume + '%';
+  }
+</script>
 
-.gesture-item {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px dashed #bbb;
-}
-
-.gesture-item span {
-  font-size: 1.5rem;
-}
-
-.g-name {
-  font-size: 1.1rem;
-  font-weight: 700;
-  color: #1a1a1a;
-}
-
-.g-desc {
-  font-size: 0.95rem;
-  color: #666;
-}
-
-footer {
-  text-align: center;
-  padding: 2rem;
-  font-size: 1rem;
-  color: #888;
-  border-top: 1.5px solid #1a1a1a;
-  font-family: 'Chakra Petch', sans-serif;
-}
+</body>
+</html>
